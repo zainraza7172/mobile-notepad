@@ -5,20 +5,14 @@ on:
   push:
     branches:
       - main
-      - master
 
 permissions:
   contents: read
-
-concurrency:
-  group: android-apk-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-apk:
     name: Build Mobile Notepad APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -30,33 +24,38 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter stable
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Generate Android platform files when missing
-        shell: bash
+      - name: Extract project ZIP
         run: |
-          if [ ! -d "android" ]; then
-            cp lib/main.dart /tmp/mobile_notepad_main.dart
-            cp pubspec.yaml /tmp/mobile_notepad_pubspec.yaml
-            cp analysis_options.yaml /tmp/mobile_notepad_analysis_options.yaml
+          rm -rf app_source
+          mkdir app_source
+          unzip -q mobile_notepad_github_apk.zip -d app_source
+          ls -la app_source/mobile_notepad_v1
 
-            flutter create \
-              --platforms=android \
-              --project-name mobile_notepad \
-              --org com.mobilenotepad \
-              .
+      - name: Generate Android project
+        working-directory: app_source/mobile_notepad_v1
+        run: |
+          cp lib/main.dart /tmp/main.dart
+          cp pubspec.yaml /tmp/pubspec.yaml
+          cp analysis_options.yaml /tmp/analysis_options.yaml
 
-            cp /tmp/mobile_notepad_main.dart lib/main.dart
-            cp /tmp/mobile_notepad_pubspec.yaml pubspec.yaml
-            cp /tmp/mobile_notepad_analysis_options.yaml analysis_options.yaml
-          fi
+          flutter create \
+            --platforms=android \
+            --project-name mobile_notepad \
+            --org com.mobilenotepad \
+            .
 
-      - name: Set Android minimum SDK to 24
-        shell: bash
+          cp /tmp/main.dart lib/main.dart
+          cp /tmp/pubspec.yaml pubspec.yaml
+          cp /tmp/analysis_options.yaml analysis_options.yaml
+
+      - name: Set minimum Android SDK
+        working-directory: app_source/mobile_notepad_v1
         run: |
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
@@ -66,20 +65,17 @@ jobs:
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' android/app/build.gradle
           fi
 
-      - name: Install Flutter packages
+      - name: Install dependencies
+        working-directory: app_source/mobile_notepad_v1
         run: flutter pub get
 
-      - name: Build release APK
+      - name: Build APK
+        working-directory: app_source/mobile_notepad_v1
         run: flutter build apk --release
-
-      - name: Prepare APK
-        run: |
-          mkdir -p release
-          cp build/app/outputs/flutter-apk/app-release.apk release/Mobile-Notepad.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Mobile-Notepad-APK
-          path: release/Mobile-Notepad.apk
+          path: app_source/mobile_notepad_v1/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
